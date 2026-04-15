@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>指名手配犯ゲーム</title>
+
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+
+body{
+  background:linear-gradient(135deg,#1a0a2e,#0f3460);
+  display:flex;
+  justify-content:center;
+  align-items:flex-start;
+  padding:20px;
+  font-family:sans-serif;
+  color:white;
+}
+
+#wrap{display:flex;gap:20px;}
+
+.panel{
+  background:rgba(255,255,255,0.08);
+  padding:12px;
+  border-radius:12px;
+  text-align:center;
+  width:140px;
+}
+
+.value{
+  font-size:26px;
+  color:#f9c74f;
+  font-weight:bold;
+}
+
+canvas{
+  border-radius:10px;
+  border:2px solid rgba(255,255,255,0.2);
+}
+
+#gameover{
+  position:absolute;
+  inset:0;
+  display:none;
+  background:rgba(0,0,0,0.8);
+  align-items:center;
+  justify-content:center;
+  flex-direction:column;
+  gap:10px;
+}
+
+button{
+  padding:10px 20px;
+  border:none;
+  border-radius:20px;
+  background:#f9c74f;
+  font-weight:bold;
+  cursor:pointer;
+}
+</style>
+</head>
+
+<body>
+
+<div id="wrap">
+
+<div>
+<div class="panel">スコア<div id="score" class="value">0</div></div>
+<div class="panel">最高<div id="best" class="value">0</div></div>
+<div class="panel">次<div><canvas id="next" width="80" height="80"></canvas></div></div>
+</div>
+
+<div style="position:relative">
+<canvas id="game" width="400" height="600"></canvas>
+
+<div id="gameover">
+<h2>ゲームオーバー</h2>
+<div id="final"></div>
+<button onclick="restart()">もう一度</button>
+</div>
+</div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+
+<script>
+const {Engine,Bodies,World,Composite,Events}=Matter;
+
+const CW=400,CH=600,DANGER=110;
+
+const FRUITS=[
+{r:18,score:1,img:"1.jpg",color:"#d62828"},
+{r:26,score:3,img:"2.jpg",color:"#e63946"},
+{r:34,score:6,img:"3.jpg",color:"#7209b7"},
+{r:42,score:10,img:"4.jpg",color:"#f4a261"},
+{r:50,score:15,img:"5.jpg",color:"#e76f51"},
+{r:58,score:21,img:"6.jpg",color:"#c1121f"},
+{r:66,score:28,img:"7.jpg",color:"#f9c74f"},
+{r:74,score:36,img:"8.jpg",color:"#ffb3c1"},
+{r:82,score:45,img:"9.jpg",color:"#fcca46"},
+{r:90,score:55,img:"10.jpg",color:"#55a630"},
+{r:100,score:66,img:"11.jpg",color:"#1d6e1f"},
+];
+
+// 画像
+const imgs={};
+FRUITS.forEach((f,i)=>{
+  let im=new Image();
+  im.src=f.img;
+  imgs[i]=im;
+});
+
+let engine,world;
+let score=0,best=+(localStorage.getItem("best")||0);
+let cur=0,next=0;
+let dropX=200;
+let canDrop=true;
+let gameOver=false;
+
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+const nextC=document.getElementById("next");
+const nctx=nextC.getContext("2d");
+
+function init(){
+engine=Engine.create({gravity:{y:1.5}});
+world=engine.world;
+
+World.add(world,[
+Bodies.rectangle(200,620,400,40,{isStatic:true}),
+Bodies.rectangle(-20,300,40,600,{isStatic:true}),
+Bodies.rectangle(420,300,40,600,{isStatic:true})
+]);
+
+Events.on(engine,"collisionStart",col);
+
+score=0;
+document.getElementById("score").textContent=0;
+document.getElementById("best").textContent=best;
+
+cur=Math.floor(Math.random()*4);
+next=Math.floor(Math.random()*4);
+drawNext();
+gameOver=false;
+document.getElementById("gameover").style.display="none";
+}
+
+function fruit(x,y,id){
+let f=FRUITS[id];
+let b=Bodies.circle(x,y,f.r,{restitution:0.2});
+b.label="fruit";
+b.idd=id;
+return b;
+}
+
+// 合体
+function col(e){
+e.pairs.forEach(p=>{
+let a=p.bodyA,b=p.bodyB;
+if(a.label!="fruit"||b.label!="fruit")return;
+if(a.idd!=b.idd)return;
+if(a.idd>=FRUITS.length-1)return;
+
+let x=(a.position.x+b.position.x)/2;
+let y=(a.position.y+b.position.y)/2;
+
+World.remove(world,a);
+World.remove(world,b);
+
+let n=a.idd+1;
+World.add(world,fruit(x,y,n));
+
+score+=FRUITS[n].score;
+document.getElementById("score").textContent=score;
+
+if(score>best){
+best=score;
+localStorage.setItem("best",best);
+document.getElementById("best").textContent=best;
+}
+});
+}
+
+function drop(){
+if(!canDrop||gameOver)return;
+
+World.add(world,fruit(dropX,50,cur));
+cur=next;
+next=Math.floor(Math.random()*4);
+drawNext();
+
+canDrop=false;
+setTimeout(()=>canDrop=true,500);
+}
+
+// 描画
+function drawFruit(c,x,y,id){
+let f=FRUITS[id];
+let im=imgs[id];
+
+c.save();
+c.beginPath();
+c.arc(x,y,f.r,0,Math.PI*2);
+
+if(im.complete&&im.naturalWidth){
+c.clip();
+c.drawImage(im,x-f.r,y-f.r,f.r*2,f.r*2);
+}else{
+c.fillStyle=f.color;
+c.fill();
+}
+
+c.restore();
+}
+
+function drawNext(){
+nctx.clearRect(0,0,80,80);
+drawFruit(nctx,40,40,next);
+}
+
+function draw(){
+ctx.clearRect(0,0,CW,CH);
+
+// 危険ライン
+ctx.strokeStyle="red";
+ctx.setLineDash([5,5]);
+ctx.beginPath();
+ctx.moveTo(0,DANGER);
+ctx.lineTo(CW,DANGER);
+ctx.stroke();
+ctx.setLineDash([]);
+
+// フルーツ
+Composite.allBodies(world).forEach(b=>{
+if(b.label!="fruit")return;
+ctx.save();
+ctx.translate(b.position.x,b.position.y);
+ctx.rotate(b.angle);
+drawFruit(ctx,0,0,b.idd);
+ctx.restore();
+});
+
+// ガイド
+if(!gameOver){
+ctx.globalAlpha=0.5;
+drawFruit(ctx,dropX,50,cur);
+ctx.globalAlpha=1;
+}
+}
+
+// ===== 修正版GO =====
+function checkGO(){
+if(gameOver)return;
+
+for(let b of Composite.allBodies(world)){
+if(b.label!="fruit")continue;
+
+let r=FRUITS[b.idd].r;
+let top=b.position.y-r;
+
+if(top < DANGER-15){
+let speed=Math.hypot(b.velocity.x,b.velocity.y);
+
+if(speed < 0.15){
+gameOver=true;
+document.getElementById("final").textContent="スコア："+score;
+document.getElementById("gameover").style.display="flex";
+}
+}
+}
+}
+// ===================
+
+canvas.addEventListener("mousemove",e=>{
+let rect=canvas.getBoundingClientRect();
+dropX=(e.clientX-rect.left)*(CW/rect.width);
+});
+
+canvas.addEventListener("click",drop);
+
+function loop(){
+Engine.update(engine);
+checkGO();
+draw();
+requestAnimationFrame(loop);
+}
+
+function restart(){
+init();
+}
+
+init();
+loop();
+</script>
+
+</body>
+</html>
